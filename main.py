@@ -1,5 +1,7 @@
-from neuron import h
-from nrn import *
+from optimizer import modelHandler
+from random import gauss
+import numpy as np
+
 
 
 
@@ -8,30 +10,24 @@ class simulationEnv(object):
     def __init__(self):
         self.theta_params = []
         self.class_params = []
-        self.stimulus=None
-        self.sections={}
+        self.model_handler = modelHandler.modelHandlerNeuron("/home/fripe/workspace/DistributionPredictor/one_comp.hoc",".")
+        #distros should be given by function, bc checking is needed
+        self.theta_distr = (34,5,1)
+        #classes has n elements if there are n possible classes
+        #each class has m class parameters
+        #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
+        self.classes=[[(0.2,1)],[(8,1)]]
         
-    def createOneCompModel(self):
-        """
-        creates a passive neuron model with one compartment
-        """
-        #not working with dot notation, but it serves test purposes only
-        #later models will be loaded from files
-        h('create soma')
-        for n in h.allsec():
-            self.sections[str(h.secname())]=n
+        
         
     def setMorphParam(self,_p,_v,container):
-        if (h.cas().name()==_p[0]):
-            h.cas().__setattr__(_p[-1],_v)
-            container.append(_p)
-        else:
-            #change section
-            raise NotImplementedError("Only works for one compartment")
-
+        self.model_handler.SetMorphParameters(_p[0], _p[-1], _v)
+        container.append(_p)
+        
 
     def setChannelParam(self, _p,_v,container):
-        raise NotImplementedError("Only works for passive models")
+        self.model_handler.SetChannelParameters(_p[0], _p[1], _p[2], _v)
+        container.append(_p)
     
     
     def setThetaParams(self,param_list,value_list):
@@ -62,38 +58,9 @@ class simulationEnv(object):
                 raise RuntimeError
 
     
-    def setStimuli(self, stim_list):
-        for stim_object in stim_list:
-            self.stimulus=h.IClamp(stim_object.pos_in_section,sec=self.sections[stim_object.section])
-            self.stimulus.amp=stim_object.amplitude
-            self.stimulus.delay=stim_object.delay
-            self.stimulus.dur=stim_object.duration
-
-    
-    
-    
-    
-
-    
-    
-
-
-
-class Stimulation(object):
-    
-    def __init__(self, section, postion, stim_type):
-        self.section=section
-        self.pos_in_section=postion
-        self.type=stim_type
-        self.delay=None
-        self.duration=None
-        self.amplitude=None
-
-    
-    def setParams(self, delay, duration, amplitude):
-        self.delay=delay
-        self.duration=duration
-        self.amplitude=amplitude
+    def setStimuli(self, stim_creation,stim_param):
+        self.model_handler.CreateStimuli(stim_creation)
+        self.model_handler.SetStimuli(stim_param, [])
 
     
     
@@ -101,14 +68,20 @@ class Stimulation(object):
 
 def main():
     sim=simulationEnv()
-    sim.createOneCompModel()
-    h.psection()
+    sim.model_handler.hoc_obj.psection()
     sim.setThetaParams(["soma Ra"],[50.0])
-    sim.setClassParams(["soma cm"],[0.01])            
-    stim=Stimulation("soma",0.5,"IClamp")
-    stim.setParams(100,500,0.2)
-    sim.setStimuli([stim])
-    h.psection()
+    sim.setClassParams(["soma cm"],[0.1])            
+    sim.model_handler.hoc_obj.psection()
+    sim.setStimuli(["IClamp",0.5,"soma"], [0.2,300,500])
+    print "simulation started"
+    sim.model_handler.RunControll([1000,0.025,"v","soma",0.5,-65.0])
+    sim.base_trace=np.array(sim.model_handler.record)
+    print "done simulating"
+    print "creating white noise"
+    sim.noise_signal=np.random.normal(0,1,len(sim.base_trace))
+    sim.signal=np.add(sim.base_trace,sim.noise_signal)
+    print "noise added"
+
     print sim.theta_params,sim.class_params
     
 if __name__ == "__main__":
