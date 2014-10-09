@@ -1,15 +1,24 @@
 from optimizer import modelHandler
+from optimizer import fitnessFunctions
 import numpy as np
+from math import exp,fsum
 import matplotlib.pyplot as plt
 
 
-
+#this could be replaced when more of optimizer's functionality is used
+class dummyOptionObject(object):
+    def __init__(self):
+        self.spike_thres = 0
+        self.output_level = "0"
+    def GetUFunString(self):
+        return ""
 
 class simulationEnv(object):
     def __init__(self):
         self.theta_params = []
         self.class_params = []
         self.model_handler = modelHandler.modelHandlerNeuron("/home/fripe/workspace/DistributionPredictor/one_comp.hoc",".")
+        self.mse = fitnessFunctions.fF(None,None,dummyOptionObject()).calc_ase
         #classes has n elements if there are n possible classes
         #each class has m class parameters
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
@@ -96,10 +105,10 @@ class simulationEnv(object):
 
     
 def drawFromGaussian(mean, std_dev):
-    i=0
     tmp=np.random.normal(mean,std_dev,1)[0]
     while (tmp<0):
         tmp=np.random.normal(mean,std_dev,1)[0]
+    print mean,std_dev,tmp 
     return tmp
 
 
@@ -115,13 +124,15 @@ def main():
     sim.base_trace=np.array(sim.model_handler.record[0])
     print "done simulating"
     print "creating white noise"
-    sim.noise_signal=np.random.normal(0,1,len(sim.base_trace))
+    noise_mean=0.0
+    noise_dev=1.0
+    sim.noise_signal=np.random.normal(noise_mean,noise_dev,len(sim.base_trace))
     sim.exp_trace=np.add(sim.base_trace,sim.noise_signal)
     print "noise added"
 #    plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist())
 #    plt.show()
     print sim.theta_params,sim.class_params
-    integration_step=10
+    integration_step=200
     iter=0
     classes_result=[[],[]]
     for cl_idx,cl in enumerate(sim.classes):
@@ -130,11 +141,27 @@ def main():
                 sim.setClassParams([sim.class_params[cl_param_idx]],
                                    [drawFromGaussian(cl_param[0], cl_param[1])])
             for th_param_idx,th_param in enumerate(sim.theta_distr[cl_idx]):
-                print th_param
                 sim.setThetaParams([sim.theta_params[th_param_idx]],
                                    [drawFromGaussian(th_param[0], th_param[1])])
-            sim.model_handler.hoc_obj.psection()
-            #sim.model_handler.RunControll([1000,0.01,"v","soma",0.5,-65.0])
+            iter+=1
+            #sim.model_handler.hoc_obj.psection()
+            sim.model_handler.RunControll([1000,0.01,"v","soma",0.5,-65.0])
+            sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
+            print -sse/noise_dev**2
+            classes_result[cl_idx].append(exp(-sse/noise_dev**2))
+        iter = 0
+        
+    #needs extension to 2+ classes
+    cl1_p=fsum(classes_result[0])
+    cl2_p=fsum(classes_result[1])
+    print classes_result[0]
+    print cl1_p
+    print classes_result[1]
+    print cl2_p
+    if (cl1_p>cl2_p):
+        print "recording belongs to class 1"
+    else:
+        print "recording belongs to class 2"
 
             
                 
@@ -142,4 +169,4 @@ def main():
 if __name__ == "__main__":
     main()
     
-    
+    ()
