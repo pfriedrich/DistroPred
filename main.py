@@ -120,7 +120,8 @@ def main():
     sim.setStimuli(["IClamp",0.5,"soma"], [0.5,30,100])
     sim.model_handler.hoc_obj.psection()
     print "simulation started"
-    sim.model_handler.RunControll([200,0.01,"v","soma",0.5,-70.0])
+    run_c_param = [200,0.01,"v","soma",0.5,-70.0]
+    sim.model_handler.RunControll(run_c_param)
     sim.base_trace=np.array(sim.model_handler.record[0])
     print "done simulating"
     print "creating white noise"
@@ -146,7 +147,7 @@ def main():
                                    [drawFromGaussian(th_param[0], th_param[1])])
             _iter+=1
             #sim.model_handler.hoc_obj.psection()
-            sim.model_handler.RunControll([200,0.01,"v","soma",0.5,-70.0])
+            sim.model_handler.RunControll(run_c_param)
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
@@ -161,17 +162,14 @@ def main():
                           ,classes_result
                         )
     #needs extension to 2+ classes
-    cl1_p=fsum(classes_result[0])
-    cl2_p=fsum(classes_result[1])
-    print classes_result[0]
-    print cl1_p
-    print classes_result[1]
-    print cl2_p
-    if (cl1_p>cl2_p):
-        print "recording belongs to class 1"
-    else:
-        print "recording belongs to class 2"
-
+    classes_prob=[]
+    for cl_vals in classes_result:
+        cl_p=fsum(cl_vals)
+        print cl_p
+        classes_prob.append(cl_p)
+    #print classes_result[0]
+    #print classes_result[1]
+    print "model belongs to class no.: ", 1+classes_prob.index(max(classes_prob))
             
                 
         
