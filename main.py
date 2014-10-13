@@ -22,9 +22,9 @@ class simulationEnv(object):
         #classes has n elements if there are n possible classes
         #each class has m class parameters
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
-        self.classes=[[(0.2,1)],[(8,1)]]
+        self.classes=[[(1,0.1)],[(2,0.1)]]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [[(34.5,1)],[(34.5,1)]]
+        self.theta_distr = [[(10,0.00001)],[(10,0.00001)]]
         
         
         
@@ -108,19 +108,19 @@ def drawFromGaussian(mean, std_dev):
     tmp=np.random.normal(mean,std_dev,1)[0]
     while (tmp<0):
         tmp=np.random.normal(mean,std_dev,1)[0]
-    print mean,std_dev,tmp 
+    #print mean,std_dev,tmp 
     return tmp
 
 
 def main():
     sim=simulationEnv()
     sim.model_handler.hoc_obj.psection()
-    sim.defineThetaParams(["soma Ra"],[50.0])
-    sim.defineClassParams(["soma cm"],[0.1])            
-    sim.setStimuli(["IClamp",0.5,"soma"], [0.2,300,500])
+    sim.defineThetaParams(["soma Ra"],[10.0])
+    sim.defineClassParams(["soma cm"],[1])            
+    sim.setStimuli(["IClamp",0.5,"soma"], [0.5,30,100])
     sim.model_handler.hoc_obj.psection()
     print "simulation started"
-    sim.model_handler.RunControll([1000,0.01,"v","soma",0.5,-65.0])
+    sim.model_handler.RunControll([200,0.01,"v","soma",0.5,-70.0])
     sim.base_trace=np.array(sim.model_handler.record[0])
     print "done simulating"
     print "creating white noise"
@@ -129,28 +129,37 @@ def main():
     sim.noise_signal=np.random.normal(noise_mean,noise_dev,len(sim.base_trace))
     sim.exp_trace=np.add(sim.base_trace,sim.noise_signal)
     print "noise added"
-#    plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist())
-#    plt.show()
+    plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
+    plt.show()
     print sim.theta_params,sim.class_params
-    integration_step=200
-    iter=0
+    integration_step=20
+    _iter=0
     classes_result=[[],[]]
+    print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
-        while (iter<integration_step):
+        while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
                                    [drawFromGaussian(cl_param[0], cl_param[1])])
             for th_param_idx,th_param in enumerate(sim.theta_distr[cl_idx]):
                 sim.setThetaParams([sim.theta_params[th_param_idx]],
                                    [drawFromGaussian(th_param[0], th_param[1])])
-            iter+=1
+            _iter+=1
             #sim.model_handler.hoc_obj.psection()
-            sim.model_handler.RunControll([1000,0.01,"v","soma",0.5,-65.0])
+            sim.model_handler.RunControll([200,0.01,"v","soma",0.5,-70.0])
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
-            print -sse/noise_dev**2
-            classes_result[cl_idx].append(exp(-sse/noise_dev**2))
-        iter = 0
-        
+            classes_result[cl_idx].append(sse)
+            #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
+            print _iter
+        _iter = 0
+    
+    best_fit = min(min(classes_result[0]),min(classes_result[1]))
+    classes_result = map( lambda x: map( 
+                                        lambda y: exp(-1*(y-best_fit)/noise_dev**2)
+                                        ,x
+                                        )
+                          ,classes_result
+                        )
     #needs extension to 2+ classes
     cl1_p=fsum(classes_result[0])
     cl2_p=fsum(classes_result[1])
@@ -169,4 +178,3 @@ def main():
 if __name__ == "__main__":
     main()
     
-    ()
