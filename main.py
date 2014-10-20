@@ -24,7 +24,7 @@ class simulationEnv(object):
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
         self.classes=[[(1,0.1)],[(2,0.1)]]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [[(10,0.00001)],[(10,0.00001)]]
+        self.theta_distr = [[(0.0001,0.0001)],[(0.0001,0.0001)]]
         
         
         
@@ -115,9 +115,9 @@ def drawFromGaussian(mean, std_dev):
 def main():
     sim=simulationEnv()
     sim.model_handler.hoc_obj.psection()
-    sim.defineThetaParams(["soma Ra"],[10.0])
+    sim.defineThetaParams(["soma pas g_pas"],[0.0001])
     sim.defineClassParams(["soma cm"],[1])            
-    sim.setStimuli(["IClamp",0.5,"soma"], [0.5,30,100])
+    sim.setStimuli(["IClamp",0.5,"soma"], [0.1,30,100])
     sim.model_handler.hoc_obj.psection()
     print "simulation started"
     run_c_param = [200,0.01,"v","soma",0.5,-70.0]
@@ -133,11 +133,12 @@ def main():
     plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
     plt.show()
     print sim.theta_params,sim.class_params
-    integration_step=20
+    integration_step=200
     _iter=0
     classes_result=[[],[]]
     print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
+        plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
         while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
@@ -147,12 +148,14 @@ def main():
                                    [drawFromGaussian(th_param[0], th_param[1])])
             _iter+=1
             #sim.model_handler.hoc_obj.psection()
+            plt.plot(range(len(sim.exp_trace.tolist())),sim.model_handler.record[0])
             sim.model_handler.RunControll(run_c_param)
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
             print _iter
         _iter = 0
+        plt.show()
     
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
     classes_result = map( lambda x: map( 
@@ -164,6 +167,7 @@ def main():
     #needs extension to 2+ classes
     classes_prob=[]
     for cl_vals in classes_result:
+        print cl_vals
         cl_p=fsum(cl_vals)
         print cl_p
         classes_prob.append(cl_p)

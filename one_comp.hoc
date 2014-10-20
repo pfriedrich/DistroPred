@@ -1,4 +1,4 @@
 create soma
 insert pas
-g_pas = 0.0001
 e_pas = -70
+diam = 30
