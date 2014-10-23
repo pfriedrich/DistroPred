@@ -102,6 +102,16 @@ class simulationEnv(object):
     def setStimuli(self, stim_creation,stim_param):
         self.model_handler.CreateStimuli(stim_creation)
         self.model_handler.SetStimuli(stim_param, [])
+        
+    def generateWhiteNoise(self, noise_mean, noise_dev):
+        self.noise_signal = np.random.normal(noise_mean, noise_dev, len(self.base_trace))
+        self.exp_trace = np.add(self.base_trace, self.noise_signal)
+        
+def downSampleBy(signal,factor):
+    tmp_mod=[]
+    for idx in range(0,len(signal),factor):
+        tmp_mod.append(signal[idx])
+    signal=tmp_mod    
 
     
 def drawFromGaussian(mean, std_dev):
@@ -127,18 +137,38 @@ def main():
     print "creating white noise"
     noise_mean=0.0
     noise_dev=1.0
-    sim.noise_signal=np.random.normal(noise_mean,noise_dev,len(sim.base_trace))
-    sim.exp_trace=np.add(sim.base_trace,sim.noise_signal)
+    sim.generateWhiteNoise(noise_mean, noise_dev)
     print "noise added"
-    plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
-    plt.show()
+    fig1=plt.figure()
+    ax1=fig1.add_subplot(111)
+    ax1.plot(range(len(sim.exp_trace.tolist())),
+             sim.exp_trace.tolist(),
+             range(len(sim.exp_trace.tolist())),
+             sim.base_trace)
+    plt.title("Base trace with noise added")
+    plt.ylabel('mV')
+    plt.xlabel('points')
     print sim.theta_params,sim.class_params
-    integration_step=200
+    integration_step=20
+    downSampleBy(sim.exp_trace, 20)
     _iter=0
     classes_result=[[],[]]
+    trace_plot_axes=[]
+    convergence_plot_axes=[]
     print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
-        plt.plot(range(len(sim.exp_trace.tolist())),sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
+        current_fig=plt.figure()
+        trace_plot_axes.append(current_fig.add_subplot(111))
+        trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
+                                     sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
+        plt.title("Traces for "+str(cl_idx+1)+" class")
+        plt.ylabel('mV')
+        plt.xlabel('points')
+        conv_fig=plt.figure()
+        convergence_plot_axes.append(conv_fig.add_subplot(111))
+        plt.title("Convergence speed for "+str(cl_idx+1)+" class")
+        plt.ylabel('squared error')
+        plt.xlabel('# iteration')
         while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
@@ -148,35 +178,40 @@ def main():
                                    [drawFromGaussian(th_param[0], th_param[1])])
             _iter+=1
             #sim.model_handler.hoc_obj.psection()
-            plt.plot(range(len(sim.exp_trace.tolist())),sim.model_handler.record[0])
+            trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
+                                         sim.model_handler.record[0])
             sim.model_handler.RunControll(run_c_param)
+            downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
+            convergence_plot_axes[cl_idx].plot(_iter,
+                                               fsum(classes_result[cl_idx])/float(_iter),
+                                               'ro')
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
             print _iter
         _iter = 0
-        plt.show()
     
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
-    classes_result = map( lambda x: map( 
-                                        lambda y: exp(-1*(y-best_fit)/noise_dev**2)
-                                        ,x
-                                        )
-                          ,classes_result
+    classes_result = map(
+                         lambda x: map(lambda y: exp(-1*(y-best_fit)/noise_dev**2)
+                                       ,x)
+                         ,classes_result
                         )
-    #needs extension to 2+ classes
+
     classes_prob=[]
     for cl_vals in classes_result:
         print cl_vals
-        cl_p=fsum(cl_vals)
+        cl_p=fsum(cl_vals)/float(len(cl_vals))
         print cl_p
         classes_prob.append(cl_p)
-    #print classes_result[0]
-    #print classes_result[1]
     print "model belongs to class no.: ", 1+classes_prob.index(max(classes_prob))
+    plt.show()
+    
             
                 
         
 if __name__ == "__main__":
     main()
+
+
     
