@@ -22,9 +22,9 @@ class simulationEnv(object):
         #classes has n elements if there are n possible classes
         #each class has m class parameters
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
-        self.classes=[[(1,0.1)],[(2,0.1)]]
+        self.classes=[[(0.9,0.1)],[(1.2,0.1)]]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [[(0.0001,0.0001)],[(0.0001,0.0001)]]
+        self.theta_distr = [[(0.00015,4e-5)],[(0.0002,4e-5)]]
         
         
         
@@ -111,7 +111,8 @@ def downSampleBy(signal,factor):
     tmp_mod=[]
     for idx in range(0,len(signal),factor):
         tmp_mod.append(signal[idx])
-    signal=tmp_mod    
+    print len(tmp_mod)
+    return tmp_mod    
 
     
 def drawFromGaussian(mean, std_dev):
@@ -133,6 +134,7 @@ def main():
     run_c_param = [200,0.01,"v","soma",0.5,-70.0]
     sim.model_handler.RunControll(run_c_param)
     sim.base_trace=np.array(sim.model_handler.record[0])
+    sim.base_trace=downSampleBy(sim.base_trace, 20)
     print "done simulating"
     print "creating white noise"
     noise_mean=0.0
@@ -150,11 +152,9 @@ def main():
     plt.xlabel('points')
     print sim.theta_params,sim.class_params
     integration_step=20
-    downSampleBy(sim.exp_trace, 20)
     _iter=0
     classes_result=[[],[]]
     trace_plot_axes=[]
-    convergence_plot_axes=[]
     print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
         current_fig=plt.figure()
@@ -164,11 +164,6 @@ def main():
         plt.title("Traces for "+str(cl_idx+1)+" class")
         plt.ylabel('mV')
         plt.xlabel('points')
-        conv_fig=plt.figure()
-        convergence_plot_axes.append(conv_fig.add_subplot(111))
-        plt.title("Convergence speed for "+str(cl_idx+1)+" class")
-        plt.ylabel('squared error')
-        plt.xlabel('# iteration')
         while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
@@ -178,26 +173,37 @@ def main():
                                    [drawFromGaussian(th_param[0], th_param[1])])
             _iter+=1
             #sim.model_handler.hoc_obj.psection()
+            sim.model_handler.RunControll(run_c_param)
+            sim.model_handler.record[0]=downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
             trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
                                          sim.model_handler.record[0])
-            sim.model_handler.RunControll(run_c_param)
-            downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
+            print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
-            convergence_plot_axes[cl_idx].plot(_iter,
-                                               fsum(classes_result[cl_idx])/float(_iter),
-                                               'ro')
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
             print _iter
         _iter = 0
     
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
     classes_result = map(
-                         lambda x: map(lambda y: exp(-1*(y-best_fit)/noise_dev**2)
+                         lambda x: map(lambda y: exp(-1*(y-best_fit)/(2*noise_dev**2))
                                        ,x)
                          ,classes_result
                         )
-
+    
+    convergence_plot_axes=[]
+    for cl_idx,cl in enumerate(classes_result):
+        conv_fig=plt.figure()
+        convergence_plot_axes.append(conv_fig.add_subplot(111))
+        plt.title("Convergence speed for "+str(cl_idx+1)+" class")
+        plt.ylabel('squared error')
+        plt.xlabel('# iteration')
+        for iter_num in range(1,len(cl)+1):
+            convergence_plot_axes[cl_idx].plot(iter_num,
+                                               fsum(cl[0:iter_num])/float(iter_num),
+                                               'ro')
+            
+            
     classes_prob=[]
     for cl_vals in classes_result:
         print cl_vals
