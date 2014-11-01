@@ -22,9 +22,9 @@ class simulationEnv(object):
         #classes has n elements if there are n possible classes
         #each class has m class parameters
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
-        self.classes=[[(0.9,0.1)],[(1.2,0.1)]]
+        self.classes=[[(0.9,0.1)],[(2,0.1)]]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [[(0.00015,4e-5)],[(0.0002,4e-5)]]
+        self.theta_distr = [[(0.0001,1e-10)],[(0.0001,1e-10)]]
         
         
         
@@ -123,7 +123,7 @@ def drawFromGaussian(mean, std_dev):
     return tmp
 
 
-def main():
+def runSimulation(num_iter):
     sim=simulationEnv()
     sim.model_handler.hoc_obj.psection()
     sim.defineThetaParams(["soma pas g_pas"],[0.0001])
@@ -151,19 +151,19 @@ def main():
     plt.ylabel('mV')
     plt.xlabel('points')
     print sim.theta_params,sim.class_params
-    integration_step=20
+    integration_step=num_iter
     _iter=0
     classes_result=[[],[]]
     trace_plot_axes=[]
     print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
-        current_fig=plt.figure()
-        trace_plot_axes.append(current_fig.add_subplot(111))
-        trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
-                                     sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
-        plt.title("Traces for "+str(cl_idx+1)+" class")
-        plt.ylabel('mV')
-        plt.xlabel('points')
+#        current_fig=plt.figure()
+#        trace_plot_axes.append(current_fig.add_subplot(111))
+#        trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
+#                                     sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
+#        plt.title("Traces for "+str(cl_idx+1)+" class")
+#        plt.ylabel('mV')
+#        plt.xlabel('points')
         while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
@@ -175,8 +175,8 @@ def main():
             #sim.model_handler.hoc_obj.psection()
             sim.model_handler.RunControll(run_c_param)
             sim.model_handler.record[0]=downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
-            trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
-                                         sim.model_handler.record[0])
+#            trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
+#                                         sim.model_handler.record[0])
             print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
@@ -191,17 +191,17 @@ def main():
                          ,classes_result
                         )
     
-    convergence_plot_axes=[]
-    for cl_idx,cl in enumerate(classes_result):
-        conv_fig=plt.figure()
-        convergence_plot_axes.append(conv_fig.add_subplot(111))
-        plt.title("Convergence speed for "+str(cl_idx+1)+" class")
-        plt.ylabel('squared error')
-        plt.xlabel('# iteration')
-        for iter_num in range(1,len(cl)+1):
-            convergence_plot_axes[cl_idx].plot(iter_num,
-                                               fsum(cl[0:iter_num])/float(iter_num),
-                                               'ro')
+#    convergence_plot_axes=[]
+#    for cl_idx,cl in enumerate(classes_result):
+#        conv_fig=plt.figure()
+#        convergence_plot_axes.append(conv_fig.add_subplot(111))
+#        plt.title("Convergence speed for "+str(cl_idx+1)+" class")
+#        plt.ylabel('sum of probabilities')
+#        plt.xlabel('# iteration')
+#        for iter_num in range(1,len(cl)+1):
+#            convergence_plot_axes[cl_idx].plot(iter_num,
+#                                               fsum(cl[0:iter_num])/float(iter_num),
+#                                               'ro')
             
             
     classes_prob=[]
@@ -210,10 +210,41 @@ def main():
         cl_p=fsum(cl_vals)/float(len(cl_vals))
         print cl_p
         classes_prob.append(cl_p)
-    print "model belongs to class no.: ", 1+classes_prob.index(max(classes_prob))
-    plt.show()
+    print "likelyhoods: "
+    for cl_idx,cl_p in enumerate(classes_prob):
+        print "\tclass "+str(cl_idx)+".: "+str(cl_p/fsum(classes_prob))
+    #plt.show()
+    return classes_result
     
-            
+  
+def main():
+    act_results=[]
+    dot=["ro","g*"]
+    class_convergence=[]
+    compare_convergence=[]
+    for i in range(1):
+        act_results=runSimulation(10)
+        current_fig=plt.figure()
+        compare_convergence.append(current_fig.add_subplot(111))
+        plt.title("Convergence speed for all classes")
+        plt.ylabel('sum of probabilities')
+        plt.xlabel('# iteration')
+        for cl_idx,cl_probs in enumerate(act_results):
+            current_fig=plt.figure()
+            class_convergence.append(current_fig.add_subplot(111))
+            plt.title("Convergence speed for "+str(cl_idx+1)+" class")
+            plt.ylabel('sum of probabilities')
+            plt.xlabel('# iteration')
+            for iter_num in range(1,len(cl_probs)+1):
+                class_convergence[cl_idx].plot(iter_num,
+                                               fsum(cl_probs[0:iter_num])/float(iter_num),
+                                               'ro')
+                compare_convergence[i].plot(iter_num,
+                                            fsum(cl_probs[0:iter_num])/float(iter_num),
+                                            dot[cl_idx])
+
+        plt.show()
+                          
                 
         
 if __name__ == "__main__":
