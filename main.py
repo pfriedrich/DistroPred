@@ -1,7 +1,8 @@
 from optimizer import modelHandler
 from optimizer import fitnessFunctions
 import numpy as np
-from math import exp,fsum
+import scipy.optimize as sci_opt
+from math import exp,fsum,log,cos,pi,sqrt
 import matplotlib.pyplot as plt
 
 
@@ -106,6 +107,46 @@ class simulationEnv(object):
     def generateWhiteNoise(self, noise_mean, noise_dev):
         self.noise_signal = np.random.normal(noise_mean, noise_dev, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
+    
+    def coloredNoise(self,params,length):
+        noise=[]
+        lam=params[1]
+        D=1
+        delta_t=1
+        a,b,n,m = np.random.uniform(0.0,1.0,4)
+        E=lambda x:exp(-x*delta_t)
+        h=sqrt(-2*D*lam*(1-E(lam)**2)*log(a))*cos(2*pi*b)
+        e_prev=sqrt(-2*D*lam*log(m))*cos(2*pi*n)
+        noise.append(e_prev)
+        for i in range(length-1):
+            e_next=e_prev*E(lam)+h
+            noise.append(e_next)
+            e_prev=e_next
+        return np.array(noise)
+        
+    def generateColoredNoise(self,source):
+        #get experimental data
+        f_h=open(source,"r")
+        data=[]
+        for i in range(4000):
+            data.append(float(f_h.readline().split("\t")[-1]))
+        f_h.close()
+        #get autocorrelation
+        baseline=np.array(data)
+        n = len(baseline)
+        variance = baseline.var()
+        baseline = baseline-baseline.mean()
+        r = np.correlate(baseline, baseline, mode = 'full')[-n:]
+        assert np.allclose(r, np.array([(baseline[:n-k]*baseline[-(n-k):]).sum() for k in range(n)]))
+        normalized_autocorr = r/(variance*(np.arange(n, 0, -1)))
+        #fit exponential decay
+        def exp_decay(t, A, K):
+            return A * np.exp(-t/K)
+        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), normalized_autocorr)
+        print params
+        self.noise_signal=self.coloredNoise(params, len(self.base_trace))
+        self.exp_trace = np.add(self.base_trace, self.noise_signal)
+        
         
 def downSampleBy(signal,factor):
     tmp_mod=[]
@@ -139,7 +180,8 @@ def runSimulation(num_iter):
     print "creating white noise"
     noise_mean=0.0
     noise_dev=1.0
-    sim.generateWhiteNoise(noise_mean, noise_dev)
+    #sim.generateWhiteNoise(noise_mean, noise_dev)
+    sim.generateColoredNoise("/home/fripe/workspace/git/optimizer/tests/ca1pc_anat/131117-C2_short.dat")
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
@@ -190,19 +232,7 @@ def runSimulation(num_iter):
                                        ,x)
                          ,classes_result
                         )
-    
-#    convergence_plot_axes=[]
-#    for cl_idx,cl in enumerate(classes_result):
-#        conv_fig=plt.figure()
-#        convergence_plot_axes.append(conv_fig.add_subplot(111))
-#        plt.title("Convergence speed for "+str(cl_idx+1)+" class")
-#        plt.ylabel('sum of probabilities')
-#        plt.xlabel('# iteration')
-#        for iter_num in range(1,len(cl)+1):
-#            convergence_plot_axes[cl_idx].plot(iter_num,
-#                                               fsum(cl[0:iter_num])/float(iter_num),
-#                                               'ro')
-            
+                
             
     classes_prob=[]
     for cl_vals in classes_result:
@@ -219,31 +249,26 @@ def runSimulation(num_iter):
   
 def main():
     act_results=[]
-    dot=["ro","g*"]
+    num_o_class=2
     class_convergence=[]
-    compare_convergence=[]
-    for i in range(1):
-        act_results=runSimulation(10)
-        current_fig=plt.figure()
-        compare_convergence.append(current_fig.add_subplot(111))
-        plt.title("Convergence speed for all classes")
+    for plot_idx in range(num_o_class):
+        current_fig=plt.figure(plot_idx)
+        class_convergence.append(current_fig.add_subplot(111))
+        plt.title("Convergence speed for "+str(plot_idx+1)+" class")
         plt.ylabel('sum of probabilities')
         plt.xlabel('# iteration')
+    
+    dot=['ro','bs']
+    for i in range(2):
+        act_results=runSimulation(100)
         for cl_idx,cl_probs in enumerate(act_results):
-            current_fig=plt.figure()
-            class_convergence.append(current_fig.add_subplot(111))
-            plt.title("Convergence speed for "+str(cl_idx+1)+" class")
-            plt.ylabel('sum of probabilities')
-            plt.xlabel('# iteration')
             for iter_num in range(1,len(cl_probs)+1):
                 class_convergence[cl_idx].plot(iter_num,
                                                fsum(cl_probs[0:iter_num])/float(iter_num),
-                                               'ro')
-                compare_convergence[i].plot(iter_num,
-                                            fsum(cl_probs[0:iter_num])/float(iter_num),
-                                            dot[cl_idx])
-
-        plt.show()
+                                               dot[i])
+            
+                
+    plt.show()
                           
                 
         
