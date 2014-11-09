@@ -111,14 +111,15 @@ class simulationEnv(object):
     def coloredNoise(self,params,length):
         noise=[]
         lam=params[1]
-        D=1
+        D=0.001
         delta_t=1
-        a,b,n,m = np.random.uniform(0.0,1.0,4)
+        n,m = np.random.uniform(0.0,1.0,2)
         E=lambda x:exp(-x*delta_t)
-        h=sqrt(-2*D*lam*(1-E(lam)**2)*log(a))*cos(2*pi*b)
         e_prev=sqrt(-2*D*lam*log(m))*cos(2*pi*n)
         noise.append(e_prev)
         for i in range(length-1):
+            a,b = np.random.uniform(0.0,1.0,2)
+            h=sqrt(-2*D*lam*(1-E(lam)**2)*log(a))*cos(2*pi*b)
             e_next=e_prev*E(lam)+h
             noise.append(e_next)
             e_prev=e_next
@@ -138,12 +139,13 @@ class simulationEnv(object):
         baseline = baseline-baseline.mean()
         r = np.correlate(baseline, baseline, mode = 'full')[-n:]
         assert np.allclose(r, np.array([(baseline[:n-k]*baseline[-(n-k):]).sum() for k in range(n)]))
-        normalized_autocorr = r/(variance*(np.arange(n, 0, -1)))
+        self.normalized_autocorr = r/(variance*(np.arange(n, 0, -1)))
         #fit exponential decay
         def exp_decay(t, A, K):
             return A * np.exp(-t/K)
-        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), normalized_autocorr)
+        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), self.normalized_autocorr)
         print params
+        self.autocorr_params=params
         self.noise_signal=self.coloredNoise(params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
         
@@ -192,6 +194,23 @@ def runSimulation(num_iter):
     plt.title("Base trace with noise added")
     plt.ylabel('mV')
     plt.xlabel('points')
+
+    exp_decay=[]
+    for t in range(len(sim.normalized_autocorr)):
+        A,K = sim.autocorr_params
+        exp_decay.append(A * np.exp(-t/K))
+    fig2=plt.figure()
+    ax2=fig2.add_subplot(111)
+    ax2.plot(range(len(sim.normalized_autocorr.tolist())),
+             sim.normalized_autocorr.tolist(),'ro',
+             range(len(exp_decay)),
+             exp_decay,'b-')
+    plt.title("autocorrelation vs exponential decay")
+    fig3=plt.figure()
+    ax3=fig3.add_subplot(111)
+    ax3.plot(range(len(sim.normalized_autocorr.tolist())),
+             sim.normalized_autocorr.tolist())
+    plt.title("autocorrelation")
     print sim.theta_params,sim.class_params
     integration_step=num_iter
     _iter=0
@@ -259,7 +278,7 @@ def main():
         plt.xlabel('# iteration')
     
     dot=['ro','bs']
-    for i in range(2):
+    for i in range(1):
         act_results=runSimulation(100)
         for cl_idx,cl_probs in enumerate(act_results):
             for iter_num in range(1,len(cl_probs)+1):
