@@ -107,24 +107,7 @@ class simulationEnv(object):
     def generateWhiteNoise(self, noise_mean, noise_dev):
         self.noise_signal = np.random.normal(noise_mean, noise_dev, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
-    
-    def coloredNoise(self,params,length):
-        noise=[]
-        lam=params[1]
-        D=0.001
-        delta_t=1
-        n,m = np.random.uniform(0.0,1.0,2)
-        E=lambda x:exp(-x*delta_t)
-        e_prev=sqrt(-2*D*lam*log(m))*cos(2*pi*n)
-        noise.append(e_prev)
-        for i in range(length-1):
-            a,b = np.random.uniform(0.0,1.0,2)
-            h=sqrt(-2*D*lam*(1-E(lam)**2)*log(a))*cos(2*pi*b)
-            e_next=e_prev*E(lam)+h
-            noise.append(e_next)
-            e_prev=e_next
-        return np.array(noise)
-        
+            
     def generateColoredNoise(self,source):
         #get experimental data
         f_h=open(source,"r")
@@ -137,24 +120,39 @@ class simulationEnv(object):
         n = len(baseline)
         variance = baseline.var()
         baseline = baseline-baseline.mean()
-        r = np.correlate(baseline, baseline, mode = 'full')[-n:]
-        assert np.allclose(r, np.array([(baseline[:n-k]*baseline[-(n-k):]).sum() for k in range(n)]))
-        self.normalized_autocorr = r/(variance*(np.arange(n, 0, -1)))
+        self.autocorr = np.correlate(baseline, baseline, mode = 'full')[-n:]
+        #self.autocorr = r/(variance*(np.arange(n, 0, -1)))
         #fit exponential decay
         def exp_decay(t, A, K):
-            return A * np.exp(-t/K)
-        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), self.normalized_autocorr)
+            return A * np.exp(-K*t)
+        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), self.autocorr)
         print params
         self.autocorr_params=params
-        self.noise_signal=self.coloredNoise(params, len(self.base_trace))
+        self.noise_signal=coloredNoise(params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
         
-        
+    
+def coloredNoise(params,length):
+    noise=[]
+    D=params[0]
+    lam=params[1]
+    delta_t=1
+    n,m = np.random.uniform(0.0,1.0,2)
+    E=lambda x:exp(-x*delta_t)
+    e_prev=sqrt(-2*D*lam*log(m))*cos(2*pi*n)
+    noise.append(e_prev)
+    for i in range(length-1):
+        a,b = np.random.uniform(0.0,1.0,2)
+        h=sqrt(-2*D*lam*(1-E(lam)**2)*log(a))*cos(2*pi*b)
+        e_next=e_prev*E(lam)+h
+        noise.append(e_next)
+        e_prev=e_next
+    return np.array(noise)
+    
 def downSampleBy(signal,factor):
     tmp_mod=[]
     for idx in range(0,len(signal),factor):
         tmp_mod.append(signal[idx])
-    print len(tmp_mod)
     return tmp_mod    
 
     
@@ -166,56 +164,11 @@ def drawFromGaussian(mean, std_dev):
     return tmp
 
 
-def runSimulation(num_iter):
-    sim=simulationEnv()
-    sim.model_handler.hoc_obj.psection()
-    sim.defineThetaParams(["soma pas g_pas"],[0.0001])
-    sim.defineClassParams(["soma cm"],[1])            
-    sim.setStimuli(["IClamp",0.5,"soma"], [0.1,30,100])
-    sim.model_handler.hoc_obj.psection()
-    print "simulation started"
-    run_c_param = [200,0.01,"v","soma",0.5,-70.0]
-    sim.model_handler.RunControll(run_c_param)
-    sim.base_trace=np.array(sim.model_handler.record[0])
-    sim.base_trace=downSampleBy(sim.base_trace, 20)
-    print "done simulating"
-    print "creating white noise"
-    noise_mean=0.0
-    noise_dev=1.0
-    #sim.generateWhiteNoise(noise_mean, noise_dev)
-    sim.generateColoredNoise("/home/fripe/workspace/git/optimizer/tests/ca1pc_anat/131117-C2_short.dat")
-    print "noise added"
-    fig1=plt.figure()
-    ax1=fig1.add_subplot(111)
-    ax1.plot(range(len(sim.exp_trace.tolist())),
-             sim.exp_trace.tolist(),
-             range(len(sim.exp_trace.tolist())),
-             sim.base_trace)
-    plt.title("Base trace with noise added")
-    plt.ylabel('mV')
-    plt.xlabel('points')
-
-    exp_decay=[]
-    for t in range(len(sim.normalized_autocorr)):
-        A,K = sim.autocorr_params
-        exp_decay.append(A * np.exp(-t/K))
-    fig2=plt.figure()
-    ax2=fig2.add_subplot(111)
-    ax2.plot(range(len(sim.normalized_autocorr.tolist())),
-             sim.normalized_autocorr.tolist(),'ro',
-             range(len(exp_decay)),
-             exp_decay,'b-')
-    plt.title("autocorrelation vs exponential decay")
-    fig3=plt.figure()
-    ax3=fig3.add_subplot(111)
-    ax3.plot(range(len(sim.normalized_autocorr.tolist())),
-             sim.normalized_autocorr.tolist())
-    plt.title("autocorrelation")
-    print sim.theta_params,sim.class_params
+def runSimulation(sim,num_iter,run_c_param,args):
+    
     integration_step=num_iter
     _iter=0
     classes_result=[[],[]]
-    trace_plot_axes=[]
     print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
 #        current_fig=plt.figure()
@@ -238,16 +191,16 @@ def runSimulation(num_iter):
             sim.model_handler.record[0]=downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
 #            trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
 #                                         sim.model_handler.record[0])
-            print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
+            #print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
-            print _iter
+            #print _iter
         _iter = 0
     
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
     classes_result = map(
-                         lambda x: map(lambda y: exp(-1*(y-best_fit)/(2*noise_dev**2))
+                         lambda x: map(lambda y: exp(-1*(y-best_fit)/(2*args["noise_dev"]**2))
                                        ,x)
                          ,classes_result
                         )
@@ -259,7 +212,7 @@ def runSimulation(num_iter):
         cl_p=fsum(cl_vals)/float(len(cl_vals))
         print cl_p
         classes_prob.append(cl_p)
-    print "likelyhoods: "
+    print "likelihoods: "
     for cl_idx,cl_p in enumerate(classes_prob):
         print "\tclass "+str(cl_idx)+".: "+str(cl_p/fsum(classes_prob))
     #plt.show()
@@ -267,26 +220,92 @@ def runSimulation(num_iter):
     
   
 def main():
+    sim=simulationEnv()
+    sim.model_handler.hoc_obj.psection()
+    sim.defineThetaParams(["soma pas g_pas"],[0.0001])
+    sim.defineClassParams(["soma cm"],[1])            
+    sim.setStimuli(["IClamp",0.5,"soma"], [0.1,30,100])
+    sim.model_handler.hoc_obj.psection()
+    print "simulation started"
+    run_c_param = [200,0.01,"v","soma",0.5,-70.0]
+    sim.model_handler.RunControll(run_c_param)
+    sim.base_trace=np.array(sim.model_handler.record[0])
+    sim.base_trace=downSampleBy(sim.base_trace, 20)
+    print "done simulating"
+    print "creating noise"
+    noise_mean=0.0
+    noise_dev=1.0
+    #sim.generateWhiteNoise(noise_mean, noise_dev)
+    sim.generateColoredNoise("/home/fripe/workspace/git/optimizer/tests/ca1pc_anat/131117-C2_short.dat")
+    print "noise added"
+    fig1=plt.figure()
+    ax1=fig1.add_subplot(111)
+    ax1.plot(range(len(sim.exp_trace.tolist())),
+             sim.exp_trace.tolist(),
+             range(len(sim.exp_trace.tolist())),
+             sim.base_trace)
+    plt.title("Base trace with noise added")
+    plt.ylabel('mV')
+    plt.xlabel('points')
+
+    exp_decay=[]
+    for t in range(len(sim.autocorr)):
+        A,K = sim.autocorr_params
+        exp_decay.append(A * np.exp(-K*t))
+    fig2=plt.figure()
+    ax2=fig2.add_subplot(111)
+    ax2.plot(range(len(sim.autocorr.tolist())),
+             sim.autocorr.tolist(),'ro',
+             range(len(exp_decay)),
+             exp_decay,'b-')
+    plt.title("autocorrelation vs exponential decay")
+    fig3=plt.figure()
+    ax3=fig3.add_subplot(111)
+    ax3.plot(range(len(sim.autocorr.tolist())),
+             sim.autocorr.tolist())
+    plt.title("autocorrelation")
+    print sim.theta_params,sim.class_params
+    
     act_results=[]
     num_o_class=2
     class_convergence=[]
     for plot_idx in range(num_o_class):
-        current_fig=plt.figure(plot_idx)
+        current_fig=plt.figure(4+plot_idx)
         class_convergence.append(current_fig.add_subplot(111))
         plt.title("Convergence speed for "+str(plot_idx+1)+" class")
         plt.ylabel('sum of probabilities')
         plt.xlabel('# iteration')
     
     dot=['ro','bs']
-    for i in range(1):
-        act_results=runSimulation(100)
+    dot2=['go','gs']
+    args={}
+    args["noise_mean"]=noise_mean
+    args["noise_dev"]=noise_dev
+    rep=2
+    
+    all_results=np.ndarray((num_o_class,101,rep))
+    print len(all_results),len(all_results[0])
+    for i in range(rep):
+        act_results=runSimulation(sim,100,run_c_param,args)
         for cl_idx,cl_probs in enumerate(act_results):
             for iter_num in range(1,len(cl_probs)+1):
+                all_results[cl_idx][iter_num][i]=fsum(cl_probs[0:iter_num])/float(iter_num)
                 class_convergence[cl_idx].plot(iter_num,
                                                fsum(cl_probs[0:iter_num])/float(iter_num),
                                                dot[i])
-            
+    for cl_idx in range(len(all_results)):
+        for i in range(len(all_results[cl_idx])):
+                class_convergence[cl_idx].errorbar(i,
+                                               fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i])),
+                                               yerr=np.std(all_results[cl_idx][i]),
+                                               fmt=dot2[cl_idx])
+                print all_results[cl_idx][i],fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i]))
+#                class_convergence[cl_idx].plot(i,
+#                                               np.std(all_results[cl_idx][i]),
+#                                               'r-')
+        print "-----------------------------------------------------------------------"
                 
+
     plt.show()
                           
                 
