@@ -130,6 +130,17 @@ class simulationEnv(object):
         self.autocorr_params=params
         self.noise_signal=coloredNoise(params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
+        self.cov_matrix=getCovMatrix(downSampleBy(self.autocorr,4))
+        
+def getCovMatrix(autocorr):
+    n=len(autocorr)
+    print "cov dim", n
+    tmp=np.zeros((n,n))
+    for r in range(n):
+        for c in range(r,n):
+            tmp[r][r:n]=autocorr[0:n-r]
+            
+    return np.matrix(tmp + tmp.T - np.diag(tmp.diagonal())).I
         
     
 def coloredNoise(params,length):
@@ -192,8 +203,9 @@ def runSimulation(sim,num_iter,run_c_param,args):
 #            trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
 #                                         sim.model_handler.record[0])
             #print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
-            sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
+            sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
             classes_result[cl_idx].append(sse)
+            print sse
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
             #print _iter
         _iter = 0
@@ -227,7 +239,7 @@ def main():
     sim.setStimuli(["IClamp",0.5,"soma"], [0.1,30,100])
     sim.model_handler.hoc_obj.psection()
     print "simulation started"
-    run_c_param = [200,0.01,"v","soma",0.5,-70.0]
+    run_c_param = [199.99,0.01,"v","soma",0.5,-70.0]
     sim.model_handler.RunControll(run_c_param)
     sim.base_trace=np.array(sim.model_handler.record[0])
     sim.base_trace=downSampleBy(sim.base_trace, 20)
@@ -284,7 +296,6 @@ def main():
     rep=2
     
     all_results=np.ndarray((num_o_class,101,rep))
-    print len(all_results),len(all_results[0])
     for i in range(rep):
         act_results=runSimulation(sim,100,run_c_param,args)
         for cl_idx,cl_probs in enumerate(act_results):
@@ -299,11 +310,9 @@ def main():
                                                fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i])),
                                                yerr=np.std(all_results[cl_idx][i]),
                                                fmt=dot2[cl_idx])
-                print all_results[cl_idx][i],fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i]))
-#                class_convergence[cl_idx].plot(i,
-#                                               np.std(all_results[cl_idx][i]),
-#                                               'r-')
-        print "-----------------------------------------------------------------------"
+#                print all_results[cl_idx][i],fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i]))
+#
+#        print "-----------------------------------------------------------------------"
                 
 
     plt.show()
