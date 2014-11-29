@@ -4,6 +4,7 @@ import numpy as np
 import scipy.optimize as sci_opt
 from math import exp,fsum,log,cos,pi,sqrt
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 
 #this could be replaced when more of optimizer's functionality is used
@@ -127,10 +128,12 @@ class simulationEnv(object):
             return A * np.exp(-K*t)
         params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), self.autocorr)
         print params
-        self.autocorr_params=params
-        self.noise_signal=coloredNoise(params, len(self.base_trace))
+        #self.autocorr_params=params
+        self.autocorr_params=[0.1,1.0/30.0]
+        self.noise_signal=coloredNoise(self.autocorr_params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
         self.cov_matrix=getCovMatrix(downSampleBy(self.autocorr,4))
+        #self.cov_matrix=getDummyCovMatrix(downSampleBy(self.autocorr,4))
         
 def getCovMatrix(autocorr):
     n=len(autocorr)
@@ -141,7 +144,12 @@ def getCovMatrix(autocorr):
             tmp[r][r:n]=autocorr[0:n-r]
             
     return np.matrix(tmp + tmp.T - np.diag(tmp.diagonal())).I
-        
+
+def getDummyCovMatrix(autocorr):
+    n=len(autocorr)
+    print "cov dim", n
+    tmp=np.identity(n)
+    return tmp
     
 def coloredNoise(params,length):
     noise=[]
@@ -204,15 +212,15 @@ def runSimulation(sim,num_iter,run_c_param,args):
 #                                         sim.model_handler.record[0])
             #print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
+            #sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
-            print sse
             #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
             #print _iter
         _iter = 0
     
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
     classes_result = map(
-                         lambda x: map(lambda y: exp(-1*(y-best_fit)/(2*args["noise_dev"]**2))
+                         lambda x: map(lambda y: exp(-1*(y-best_fit))
                                        ,x)
                          ,classes_result
                         )
@@ -288,22 +296,44 @@ def main():
         plt.ylabel('sum of probabilities')
         plt.xlabel('# iteration')
     
-    dot=['ro','bs']
+    
+    markers = []
+    for m in Line2D.markers:
+        try:
+            if len(m) == 1 and m != ' ':
+                markers.append(m)
+        except TypeError:
+            pass
+    
+    styles = [
+    r'$\lambda$',
+    r'$\bowtie$',
+    r'$\circlearrowleft$',
+    r'$\clubsuit$',
+    r'$\checkmark$'] + markers
+
+    colors = ('b', 'r', 'c', 'g', 'm', 'y', 'k')
+    
     dot2=['go','gs']
     args={}
     args["noise_mean"]=noise_mean
     args["noise_dev"]=noise_dev
-    rep=2
+    rep=5
     
     all_results=np.ndarray((num_o_class,101,rep))
     for i in range(rep):
+        print i
         act_results=runSimulation(sim,100,run_c_param,args)
         for cl_idx,cl_probs in enumerate(act_results):
             for iter_num in range(1,len(cl_probs)+1):
                 all_results[cl_idx][iter_num][i]=fsum(cl_probs[0:iter_num])/float(iter_num)
                 class_convergence[cl_idx].plot(iter_num,
                                                fsum(cl_probs[0:iter_num])/float(iter_num),
-                                               dot[i])
+                                               linestyle='None',
+                                               marker=styles[i % len(styles)],
+                                               color=colors[i % len(colors)]
+                                               )
+    print "plotting deviation"
     for cl_idx in range(len(all_results)):
         for i in range(len(all_results[cl_idx])):
                 class_convergence[cl_idx].errorbar(i,
