@@ -12,6 +12,7 @@ class dummyOptionObject(object):
     def __init__(self):
         self.spike_thres = 0
         self.output_level = "0"
+        self.covariance_flag=1
     def GetUFunString(self):
         return ""
 
@@ -132,6 +133,11 @@ class simulationEnv(object):
         self.autocorr_params=[0.1,1.0/30.0]
         self.noise_signal=coloredNoise(self.autocorr_params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
+        exp_handler=open("/home/fripe/workspace/DistributionPredictor/input_data2.dat","w")
+        for l in self.exp_trace:
+            exp_handler.write(str(l))
+            exp_handler.write("\n")
+        exp_handler.close()
         self.cov_matrix=getCovMatrix(downSampleBy(self.autocorr,4))
         #self.cov_matrix=getDummyCovMatrix(downSampleBy(self.autocorr,4))
         
@@ -142,8 +148,20 @@ def getCovMatrix(autocorr):
     for r in range(n):
         for c in range(r,n):
             tmp[r][r:n]=autocorr[0:n-r]
-            
-    return np.matrix(tmp + tmp.T - np.diag(tmp.diagonal())).I
+
+    result=np.matrix(tmp + tmp.T - np.diag(tmp.diagonal())).I
+    cov_handler = open("/home/fripe/workspace/DistributionPredictor/cov_m.dat","w")
+    for row in range(n):
+        r_str=" ".join(map(str,result[row]))
+        r_str=r_str.strip("[")
+        r_str=r_str.strip("]")
+        if row<n-1:
+            r_str=r_str+";\n"
+        cov_handler.write(r_str)
+        
+    cov_handler.close()
+                  
+    return result
 
 def getDummyCovMatrix(autocorr):
     n=len(autocorr)
@@ -182,7 +200,105 @@ def drawFromGaussian(mean, std_dev):
     #print mean,std_dev,tmp 
     return tmp
 
+#def runOptimizer(sim):
+#    import subprocess
+#    status = subprocess.call("python" + " /home/fripe/workspace/git/optimizer/optimizer/optimizer.py -c /home/fripe/workspace/DistributionPredictor/optimizer_config.xml", shell=True)
+#    optimum=[]
+#    optimizer_result=open("/home/fripe/workspace/DistributionPredictor/one_comp_results.html","r")
+#    result_file=optimizer_result.readlines()
+#    from copy import copy
+#    all_parameters=copy(sim.class_params)
+#    all_parameters.extend(sim.theta_params)
+#    for param in all_parameters:
+#        "<td>"+param+"</td>"
+#        optimum.append(result_file[result_file.index(filter(lambda x:("<td>"+param+"</td>") in x,result_file)[0])+3])
+#    optimum=map(lambda x: float(x[4:len(x)-6]),optimum)
+ 
+ 
+def runOptimizer(sim):
+    import sys
+    from optimizer import Core
+    import xml.etree.ElementTree as ET
+    import matplotlib
+    matplotlib.use('Agg')
+    matplotlib.interactive(False)
+    fname="/home/fripe/workspace/DistributionPredictor/optimizer_config.xml"
+    param = None
+    try:
+        f = open(fname, "r")
+    except IOError as ioe:
+        print ioe
+        sys.exit("File not found!\n")
+    tree = ET.parse(fname)
+    root = tree.getroot()
+    if root.tag != "settings":
+        sys.exit("Missing \"settings\" tag in xml!")
 
+    core = Core.coreModul()
+    if param != None:
+        core.option_handler.output_level = param.lstrip("-v_level=") 
+    core.option_handler.read_all(root)
+    core.Print()
+    kwargs = {"file" : core.option_handler.GetFileOption(),
+            "input": core.option_handler.GetInputOptions()}
+    core.FirstStep(kwargs)
+    
+    kwargs = {"simulator": core.option_handler.GetSimParam()[0],
+            "model" : core.option_handler.GetModelOptions(),
+            "sim_command":core.option_handler.GetSimParam()[1]}
+    core.LoadModel(kwargs)
+    
+    kwargs = {"stim" : core.option_handler.GetModelStim(), "stimparam" : core.option_handler.GetModelStimParam()}
+    core.SecondStep(kwargs)
+    
+    
+    kwargs = None
+    
+    core.ThirdStep(kwargs)
+    core.FourthStep()
+    print core.optimizer.final_pop[0].candidate[0:len(core.optimizer.final_pop[0].candidate) / 2]
+    print "resulting parameters: ", core.optimal_params
+    
+    normalized_optimum=core.optimizer.final_pop[0].candidate[0:len(core.option_handler.adjusted_params)]
+#    import numdifftools as nd
+#    hessianObj=nd.Hessian(,numTerms=0)
+#    print hessianObj.hessian(normalized_optimum)
+    func=lambda x: core.optimizer.ffun([x],{})[0]
+    print hessian(func, np.array(normalized_optimum))
+ 
+ 
+def hessian ( calculate_cost_function, x0, epsilon=1.e-5, linear_approx=False, *args ):
+    """
+    A numerical approximation to the Hessian matrix of cost function at
+    location x0 (hopefully, the minimum)
+    """
+    # ``calculate_cost_function`` is the cost function implementation
+    # The next line calculates an approximation to the first
+    # derivative
+    import numpy as np
+    from scipy.optimize import approx_fprime
+    f1 = approx_fprime( x0, calculate_cost_function, epsilon, *args) 
+ 
+    # This is a linear approximation. Obviously much more efficient
+    # if cost function is linear
+    if linear_approx:
+        f1 = np.matrix(f1)
+        return f1.transpose() * f1    
+    # Allocate space for the hessian
+    n = x0.shape[0]
+    hessian = np.zeros ( ( n, n ) )
+    # The next loop fill in the matrix
+    xx = x0
+    for j in xrange( n ):
+        xx0 = xx[j] # Store old value
+        xx[j] = xx0 + epsilon # Perturb with finite difference
+        # Recalculate the partial derivatives for this new point
+        f2 = approx_fprime( x0, calculate_cost_function, epsilon, *args) 
+        hessian[:, j] = (f2 - f1)/epsilon # scale...
+        xx[j] = xx0 # Restore initial value of x0        
+    return hessian
+   
+            
 def runSimulation(sim,num_iter,run_c_param,args):
     
     integration_step=num_iter
@@ -190,13 +306,7 @@ def runSimulation(sim,num_iter,run_c_param,args):
     classes_result=[[],[]]
     print "start brute force"
     for cl_idx,cl in enumerate(sim.classes):
-#        current_fig=plt.figure()
-#        trace_plot_axes.append(current_fig.add_subplot(111))
-#        trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
-#                                     sim.exp_trace.tolist(),range(len(sim.exp_trace.tolist())),sim.base_trace)
-#        plt.title("Traces for "+str(cl_idx+1)+" class")
-#        plt.ylabel('mV')
-#        plt.xlabel('points')
+
         while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
@@ -205,17 +315,11 @@ def runSimulation(sim,num_iter,run_c_param,args):
                 sim.setThetaParams([sim.theta_params[th_param_idx]],
                                    [drawFromGaussian(th_param[0], th_param[1])])
             _iter+=1
-            #sim.model_handler.hoc_obj.psection()
             sim.model_handler.RunControll(run_c_param)
             sim.model_handler.record[0]=downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
-#            trace_plot_axes[cl_idx].plot(range(len(sim.exp_trace.tolist())),
-#                                         sim.model_handler.record[0])
-            #print len(sim.exp_trace.tolist()),len(sim.model_handler.record[0])
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
             #sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
-            #classes_result[cl_idx].append(exp(-sse/noise_dev**2))
-            #print _iter
         _iter = 0
     
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
@@ -286,67 +390,66 @@ def main():
     plt.title("autocorrelation")
     print sim.theta_params,sim.class_params
     
-    act_results=[]
-    num_o_class=2
-    class_convergence=[]
-    for plot_idx in range(num_o_class):
-        current_fig=plt.figure(4+plot_idx)
-        class_convergence.append(current_fig.add_subplot(111))
-        plt.title("Convergence speed for "+str(plot_idx+1)+" class")
-        plt.ylabel('sum of probabilities')
-        plt.xlabel('# iteration')
+    runOptimizer(sim)
     
-    
-    markers = []
-    for m in Line2D.markers:
-        try:
-            if len(m) == 1 and m != ' ':
-                markers.append(m)
-        except TypeError:
-            pass
-    
-    styles = [
-    r'$\lambda$',
-    r'$\bowtie$',
-    r'$\circlearrowleft$',
-    r'$\clubsuit$',
-    r'$\checkmark$'] + markers
-
-    colors = ('b', 'r', 'c', 'g', 'm', 'y', 'k')
-    
-    dot2=['go','gs']
-    args={}
-    args["noise_mean"]=noise_mean
-    args["noise_dev"]=noise_dev
-    rep=5
-    
-    all_results=np.ndarray((num_o_class,101,rep))
-    for i in range(rep):
-        print i
-        act_results=runSimulation(sim,100,run_c_param,args)
-        for cl_idx,cl_probs in enumerate(act_results):
-            for iter_num in range(1,len(cl_probs)+1):
-                all_results[cl_idx][iter_num][i]=fsum(cl_probs[0:iter_num])/float(iter_num)
-                class_convergence[cl_idx].plot(iter_num,
-                                               fsum(cl_probs[0:iter_num])/float(iter_num),
-                                               linestyle='None',
-                                               marker=styles[i % len(styles)],
-                                               color=colors[i % len(colors)]
-                                               )
-    print "plotting deviation"
-    for cl_idx in range(len(all_results)):
-        for i in range(len(all_results[cl_idx])):
-                class_convergence[cl_idx].errorbar(i,
-                                               fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i])),
-                                               yerr=np.std(all_results[cl_idx][i]),
-                                               fmt=dot2[cl_idx])
-#                print all_results[cl_idx][i],fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i]))
+#    act_results=[]
+#    num_o_class=2
+#    class_convergence=[]
+#    for plot_idx in range(num_o_class):
+#        current_fig=plt.figure(4+plot_idx)
+#        class_convergence.append(current_fig.add_subplot(111))
+#        plt.title("Convergence speed for "+str(plot_idx+1)+" class")
+#        plt.ylabel('sum of probabilities')
+#        plt.xlabel('# iteration')
+#    
+#    
+#    markers = []
+#    for m in Line2D.markers:
+#        try:
+#            if len(m) == 1 and m != ' ':
+#                markers.append(m)
+#        except TypeError:
+#            pass
+#    
+#    styles = [
+#    r'$\lambda$',
+#    r'$\bowtie$',
+#    r'$\circlearrowleft$',
+#    r'$\clubsuit$',
+#    r'$\checkmark$'] + markers
 #
-#        print "-----------------------------------------------------------------------"
-                
-
-    plt.show()
-                          
+#    colors = ('b', 'r', 'c', 'g', 'm', 'y', 'k')
+#    
+#    dot2=['go','gs']
+#    args={}
+#    args["noise_mean"]=noise_mean
+#    args["noise_dev"]=noise_dev
+#    rep=1
+#    
+#    all_results=np.ndarray((num_o_class,101,rep))
+#    for i in range(rep):
+#        print i
+#        act_results=runSimulation(sim,100,run_c_param,args)
+#        for cl_idx,cl_probs in enumerate(act_results):
+#            for iter_num in range(1,len(cl_probs)+1):
+#                all_results[cl_idx][iter_num][i]=fsum(cl_probs[0:iter_num])/float(iter_num)
+#                class_convergence[cl_idx].plot(iter_num,
+#                                               fsum(cl_probs[0:iter_num])/float(iter_num),
+#                                               linestyle='None',
+#                                               marker=styles[i % len(styles)],
+#                                               color=colors[i % len(colors)]
+#                                               )
+#    print "plotting deviation"
+#    for cl_idx in range(len(all_results)):
+#        for i in range(len(all_results[cl_idx])):
+#                class_convergence[cl_idx].errorbar(i,
+#                                               fsum(all_results[cl_idx][i])/float(len(all_results[cl_idx][i])),
+#                                               yerr=np.std(all_results[cl_idx][i]),
+#                                               fmt=dot2[cl_idx])
+#                
+#
+#    plt.show()
+#                          
                 
         
 if __name__ == "__main__":
