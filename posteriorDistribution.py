@@ -111,10 +111,10 @@ class simulationEnv(object):
         self.model_handler.SetStimuli(stim_param, [])
         
     def generateWhiteNoise(self, noise_mean, noise_dev):
-        self.noise_signal = map(lambda x:x/30.0,np.random.normal(noise_mean, noise_dev, len(self.base_trace)))
+        self.noise_signal = np.random.normal(noise_mean, noise_dev, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
             
-    def generateColoredNoise(self,source):
+    def generateColoredNoise(self,params):
         self.autocorr_params=params
         self.noise_signal=coloredNoise(self.autocorr_params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
@@ -127,10 +127,10 @@ class simulationEnv(object):
         data=self.exp_trace
         baseline=np.array(data)
         n = len(baseline)
-        variance = baseline.var()
         baseline = baseline-baseline.mean()
         self.autocorr = np.correlate(baseline, baseline, mode = 'full')[-n:]
         self.cov_matrix=getCovMatrix(self.autocorr)
+        self.cov_matrix=getDummyCovMatrix(self.autocorr)
         
 def getCovMatrix(autocorr):
     n=len(autocorr)
@@ -223,8 +223,10 @@ def runSimulation(sim,class_sample,theta_sample,run_c_param,args):
             sim.ff.usr_fun(sim.ff,param)
             sim.model_handler.RunControll(run_c_param)
             sim.model_handler.record[0]=downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
-            #sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
-            sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
+            #calculation for colored noise with cov matrix
+            sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
+            #calculation for white noise
+            #sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             if sse<best_fit:
                 best_fit=sse
             tmp.append(sse)
@@ -233,6 +235,9 @@ def runSimulation(sim,class_sample,theta_sample,run_c_param,args):
         class_param_prob.append([cl_val[0],tmp])
     
     class_param_prob=map(lambda x:[x[0],map(lambda y:y-best_fit,x[1])],class_param_prob)
+    #this belongs to white noise
+    #class_param_prob=map(lambda x:[x[0],fsum(map(lambda y:exp(-y/(2*args["noise_params"][1]**2)),x[1]))/theta_sample],class_param_prob)
+    #calculation for colored noise
     class_param_prob=map(lambda x:[x[0],fsum(map(lambda y:exp(-y),x[1]))/theta_sample],class_param_prob)
     fig4=plt.figure()
     ax4=fig4.add_subplot(111)
@@ -273,10 +278,13 @@ def main():
     print "done simulating"
     print "creating noise"
     noise_mean=0.0
-    noise_dev=1.0
-    sim.generateWhiteNoise(noise_mean, noise_dev)
+    #noise_dev=1.0
+    noise_dev=0.1
+    #sim.generateWhiteNoise(noise_mean, noise_dev)
 
-    #sim.generateColoredNoise([30.0,1.0/30.0])
+    #first param is the noise amplitude
+    #for big noise, use 10.0
+    sim.generateColoredNoise([0.1,1.0/30.0])
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
@@ -299,14 +307,14 @@ def main():
 #             range(len(exp_decay)),
 #             exp_decay,'b-')
 #    plt.title("autocorrelation vs exponential decay")
-#    fig3=plt.figure()
-#    ax3=fig3.add_subplot(111)
-#    ax3.plot(range(len(sim.autocorr.tolist())),
-#             sim.autocorr.tolist())
-#    plt.title("autocorrelation")
+    fig3=plt.figure()
+    ax3=fig3.add_subplot(111)
+    ax3.plot(range(len(sim.autocorr.tolist())),
+             sim.autocorr.tolist())
+    plt.title("autocorrelation")
     print sim.theta_params,sim.class_params
     
-    runSimulation(sim, 200, 10, run_c_param, [])
+    runSimulation(sim, 200, 10, run_c_param, {"noise_params": [noise_mean,noise_dev]})
     plt.show()                
         
 if __name__ == "__main__":
