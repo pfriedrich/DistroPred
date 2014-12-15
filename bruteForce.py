@@ -110,27 +110,8 @@ class simulationEnv(object):
         self.noise_signal = np.random.normal(noise_mean, noise_dev, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
             
-    def generateColoredNoise(self,source):
-        #get experimental data
-        f_h=open(source,"r")
-        data=[]
-        for i in range(4000):
-            data.append(float(f_h.readline().split("\t")[-1]))
-        f_h.close()
-        #get autocorrelation
-        baseline=np.array(data)
-        n = len(baseline)
-        variance = baseline.var()
-        baseline = baseline-baseline.mean()
-        self.autocorr = np.correlate(baseline, baseline, mode = 'full')[-n:]
-        #self.autocorr = r/(variance*(np.arange(n, 0, -1)))
-        #fit exponential decay
-        def exp_decay(t, A, K):
-            return A * np.exp(-K*t)
-        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), self.autocorr)
-        print params
-        #self.autocorr_params=params
-        self.autocorr_params=[0.1,1.0/30.0]
+    def generateColoredNoise(self,params):
+        self.autocorr_params=params
         self.noise_signal=coloredNoise(self.autocorr_params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
         exp_handler=open("/home/fripe/workspace/DistributionPredictor/input_data2.dat","w")
@@ -138,7 +119,14 @@ class simulationEnv(object):
             exp_handler.write(str(l))
             exp_handler.write("\n")
         exp_handler.close()
-        self.cov_matrix=getCovMatrix(downSampleBy(self.autocorr,4))
+        #get autocorrelation
+        data=self.exp_trace
+        baseline=np.array(data)
+        n = len(baseline)
+        variance = baseline.var()
+        baseline = baseline-baseline.mean()
+        self.autocorr = np.correlate(baseline, baseline, mode = 'full')[-n:]
+        self.cov_matrix=getCovMatrix(self.autocorr)
         #self.cov_matrix=getDummyCovMatrix(downSampleBy(self.autocorr,4))
         
 def getCovMatrix(autocorr):
@@ -263,7 +251,7 @@ def main():
     noise_mean=0.0
     noise_dev=1.0
     #sim.generateWhiteNoise(noise_mean, noise_dev)
-    sim.generateColoredNoise("/home/fripe/workspace/git/optimizer/tests/ca1pc_anat/131117-C2_short.dat")
+    sim.generateColoredNoise([30.0,1.0/30.0])
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
@@ -275,22 +263,22 @@ def main():
     plt.ylabel('mV')
     plt.xlabel('points')
 
-    exp_decay=[]
-    for t in range(len(sim.autocorr)):
-        A,K = sim.autocorr_params
-        exp_decay.append(A * np.exp(-K*t))
-    fig2=plt.figure()
-    ax2=fig2.add_subplot(111)
-    ax2.plot(range(len(sim.autocorr.tolist())),
-             sim.autocorr.tolist(),'ro',
-             range(len(exp_decay)),
-             exp_decay,'b-')
-    plt.title("autocorrelation vs exponential decay")
-    fig3=plt.figure()
-    ax3=fig3.add_subplot(111)
-    ax3.plot(range(len(sim.autocorr.tolist())),
-             sim.autocorr.tolist())
-    plt.title("autocorrelation")
+#    exp_decay=[]
+#    for t in range(len(sim.autocorr)):
+#        A,K = sim.autocorr_params
+#        exp_decay.append(A * np.exp(-K*t))
+#    fig2=plt.figure()
+#    ax2=fig2.add_subplot(111)
+#    ax2.plot(range(len(sim.autocorr.tolist())),
+#             sim.autocorr.tolist(),'ro',
+#             range(len(exp_decay)),
+#             exp_decay,'b-')
+#    plt.title("autocorrelation vs exponential decay")
+#    fig3=plt.figure()
+#    ax3=fig3.add_subplot(111)
+#    ax3.plot(range(len(sim.autocorr.tolist())),
+#             sim.autocorr.tolist())
+#    plt.title("autocorrelation")
     print sim.theta_params,sim.class_params
     
     
