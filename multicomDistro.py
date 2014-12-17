@@ -24,10 +24,10 @@ class simulationEnv(object):
         self.dummy_option = dummyOptionObject()
         self.ff = fitnessFunctions.fF(None,self.model_handler,self.dummy_option)
         self.mse = self.ff.calc_ase
-        
-        self.classes=[(0.1,10)]
+        print self.dummy_option.GetUFunString()        
+        self.classes=[(0.1,8)]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [(30,3000),(1e-05,0,001)]
+        self.theta_distr = [(150,20),(0.0005,0.0001)]
         
         
         
@@ -110,27 +110,8 @@ class simulationEnv(object):
         self.noise_signal = np.random.normal(noise_mean, noise_dev, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
             
-    def generateColoredNoise(self,source):
-        #get experimental data
-        f_h=open(source,"r")
-        data=[]
-        for i in range(4000):
-            data.append(float(f_h.readline().split("\t")[-1]))
-        f_h.close()
-        #get autocorrelation
-        baseline=np.array(data)
-        n = len(baseline)
-        variance = baseline.var()
-        baseline = baseline-baseline.mean()
-        self.autocorr = np.correlate(baseline, baseline, mode = 'full')[-n:]
-        #self.autocorr = r/(variance*(np.arange(n, 0, -1)))
-        #fit exponential decay
-        def exp_decay(t, A, K):
-            return A * np.exp(-K*t)
-        params,param_cov=sci_opt.curve_fit(exp_decay, np.array(range(4000)), self.autocorr)
-        print params
-        #self.autocorr_params=params
-        self.autocorr_params=[0.1,1.0/30.0]
+    def generateColoredNoise(self,params):
+        self.autocorr_params=params
         self.noise_signal=coloredNoise(self.autocorr_params, len(self.base_trace))
         self.exp_trace = np.add(self.base_trace, self.noise_signal)
         exp_handler=open("/home/fripe/workspace/DistributionPredictor/input_data2.dat","w")
@@ -138,9 +119,14 @@ class simulationEnv(object):
             exp_handler.write(str(l))
             exp_handler.write("\n")
         exp_handler.close()
-        self.cov_matrix=getCovMatrix(downSampleBy(self.autocorr,4))
-        #self.cov_matrix=getDummyCovMatrix(downSampleBy(self.autocorr,4))
+        #get autocorrelation
         
+        time_scale=np.linspace(0,199.99,1000)
+        data=self.autocorr_params[0]*self.autocorr_params[1]*np.exp(-self.autocorr_params[1]*time_scale)
+        self.autocorr = data
+        self.cov_matrix=getCovMatrix(self.autocorr)
+        #self.cov_matrix=getDummyCovMatrix(self.autocorr)
+            
 def getCovMatrix(autocorr):
     n=len(autocorr)
     print "cov dim", n
@@ -200,8 +186,8 @@ def drawFromGaussian(mean, std_dev):
     #print mean,std_dev,tmp 
     return tmp
 
-def drawFromInterval(min, max, sample_num):
-    return np.linspace(min, max, sample_num).tolist()
+def drawFromInterval(min, max, num, act):
+    return np.linspace(min, max, num).tolist()[act]
 
 def drawFromUniform(min, max):
     return np.random.uniform(min, max)
@@ -209,23 +195,32 @@ def drawFromUniform(min, max):
  
             
 def runSimulation(sim,class_sample,theta_sample,run_c_param,args):
+    sim.ff = fitnessFunctions.fF(None,sim.model_handler,sim.dummy_option)
+    sim.mse = sim.ff.calc_ase
     theta_vals=[]
     class_vals=[]
     class_param_prob=[]
     for i in range(theta_sample):
         tmp=[]
         for th in sim.theta_distr:
-            tmp.append(drawFromUniform(th[0],th[1]))
+            tmp.append(drawFromGaussian(th[0],th[1]))
         theta_vals.append(tmp)
     
     for i in range(class_sample):
         tmp=[]
         for cl in sim.classes:
-            tmp.append(drawFromUniform(cl[0],cl[1]))
+            #tmp.append(drawFromGaussian(cl[0],cl[1]))
+            tmp.append(drawFromInterval(5,10,class_sample,i))
         class_vals.append(tmp)
-        
+      
+    print class_vals
+    print theta_vals
+    best_fit=1e+10
+    iter_counter=0
     for cl_val in class_vals:
         tmp=[]
+        print iter_counter
+        iter_counter+=1
         for th_val in theta_vals:
             #sim.setClassParams(sim.class_params,cl_val)
             #sim.setThetaParams(sim.theta_params,th_val)
@@ -234,25 +229,47 @@ def runSimulation(sim,class_sample,theta_sample,run_c_param,args):
             sim.ff.usr_fun(sim.ff,param)
             sim.model_handler.RunControll(run_c_param)
             sim.model_handler.record[0]=downSampleBy(sim.model_handler.record[0],20)#1ms=20 sampling point
+            #calculation for colored noise with cov matrix
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
+            #calculation for white noise
+#            sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
+            if sse<best_fit:
+                best_fit=sse
             tmp.append(sse)
+            print sse
+            #tmp.append(exp(-sse))
         #only one class parameter for now
-        class_param_prob.append([cl_val[0],fsum(tmp)/theta_sample])
+        class_param_prob.append([cl_val[0],tmp])
+    
+    class_param_prob=map(lambda x:[x[0],map(lambda y:y-best_fit,x[1])],class_param_prob)
+    #this belongs to white noise
+#    class_param_prob=map(lambda x:[x[0],fsum(map(lambda y:exp(-y/(2*args["noise_params"][1]**2)),x[1]))/theta_sample],class_param_prob)
+    #calculation for colored noise
+    class_param_prob=map(lambda x:[x[0],fsum(map(lambda y:exp(-y),x[1]))/theta_sample],class_param_prob)
+    fig4=plt.figure()
+    ax4=fig4.add_subplot(111)
+    results_to_plot=zip(*class_param_prob)
+    ax4.plot(results_to_plot[0],results_to_plot[1],"r.")
+    plt.title("Likelihood of "+sim.class_params[0])
+    plt.xlabel("parameter values")
+    plt.ylabel("likelihood")
+  
 
     import scipy.stats
     #works only for 1D normal distro. => only 1 class parameter
     #likelihood*P(D)
-    class_param_prob=map(lambda x:[x[0],x[1]*1.0/(sim.classes[0][1]-sim.classes[0][0])],class_param_prob)
+    class_param_prob=map(lambda x:[x[0],x[1]*scipy.stats.norm(sim.classes[0][0], sim.classes[0][1]).pdf(x[0])],class_param_prob)
     #P(D|R,I)
     class_param_prob=map(lambda x: [x[0],x[1]/fsum(map(lambda x:x[1],class_param_prob))],class_param_prob)
     
-    fig4=plt.figure()
-    ax4=fig4.add_subplot(111)
+    fig5=plt.figure()
+    ax5=fig5.add_subplot(111)
     results_to_plot=zip(*class_param_prob)
-    ax4.plot(results_to_plot[0],results_to_plot[1],"g.")
+    ax5.plot(results_to_plot[0],results_to_plot[1],"g.")
     plt.title("Probability distribution of "+sim.class_params[0])
     plt.xlabel("parameter values")
     plt.ylabel("probability")
+    fig5.savefig("prob_distro1.svg", dpi=None, facecolor='w', edgecolor='w')
   
 def main():
     sim=simulationEnv()
@@ -273,9 +290,14 @@ def main():
     print "done simulating"
     print "creating noise"
     noise_mean=0.0
-    noise_dev=1.0
-    #sim.generateWhiteNoise(noise_mean, noise_dev)
-    sim.generateColoredNoise("/home/fripe/workspace/git/optimizer/tests/ca1pc_anat/131117-C2_short.dat")
+#    noise_dev=1.0
+    noise_dev=0.1
+#    sim.generateWhiteNoise(noise_mean, noise_dev)
+
+    #first param is the noise amplitude
+    #for big noise, use 10.0
+#    sim.generateColoredNoise([0.1,1.0/30.0])
+    sim.generateColoredNoise([10.0,1.0/30.0])
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
@@ -287,26 +309,18 @@ def main():
     plt.ylabel('mV')
     plt.xlabel('points')
 
-    exp_decay=[]
-    for t in range(len(sim.autocorr)):
-        A,K = sim.autocorr_params
-        exp_decay.append(A * np.exp(-K*t))
-    fig2=plt.figure()
-    ax2=fig2.add_subplot(111)
-    ax2.plot(range(len(sim.autocorr.tolist())),
-             sim.autocorr.tolist(),'ro',
-             range(len(exp_decay)),
-             exp_decay,'b-')
-    plt.title("autocorrelation vs exponential decay")
-    fig3=plt.figure()
-    ax3=fig3.add_subplot(111)
-    ax3.plot(range(len(sim.autocorr.tolist())),
-             sim.autocorr.tolist())
-    plt.title("autocorrelation")
+    
+#    fig3=plt.figure()
+#    ax3=fig3.add_subplot(111)
+#    ax3.plot(range(len(sim.autocorr.tolist())),
+#             sim.autocorr.tolist())
+#    plt.title("autocorrelation")
     print sim.theta_params,sim.class_params
     
-    runSimulation(sim, 20, 10, run_c_param, [])
-    plt.show()                
+    runSimulation(sim, 2, 3, run_c_param, {"noise_params": [noise_mean,noise_dev]})
+    #plt.show()
+    fig1.savefig("base_trace1.svg", dpi=None, facecolor='w', edgecolor='w')
+                 
         
 if __name__ == "__main__":
     main()
