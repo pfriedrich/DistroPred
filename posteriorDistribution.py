@@ -23,8 +23,8 @@ class simulationEnv(object):
         self.class_params = []
         self.model_handler = modelHandler.modelHandlerNeuron("/home/fripe/workspace/DistributionPredictor/one_comp.hoc",".")
         self.dummy_option = dummyOptionObject()
-        self.ff = fitnessFunctions.fF(None,self.model_handler,self.dummy_option)
-        self.mse = self.ff.calc_ase
+        self.ff = None
+        self.mse = None
         print self.dummy_option.GetUFunString()
         #classes has n elements if there are n possible classes
         #each class has m class parameters
@@ -124,13 +124,12 @@ class simulationEnv(object):
             exp_handler.write("\n")
         exp_handler.close()
         #get autocorrelation
-        data=self.exp_trace
-        baseline=np.array(data)
-        n = len(baseline)
-        baseline = baseline-baseline.mean()
-        self.autocorr = np.correlate(baseline, baseline, mode = 'full')[-n:]
+        
+        time_scale=np.linspace(0,199.99,1000)
+        data=self.autocorr_params[0]*self.autocorr_params[1]*np.exp(-self.autocorr_params[1]*time_scale)
+        self.autocorr = data
         self.cov_matrix=getCovMatrix(self.autocorr)
-        self.cov_matrix=getDummyCovMatrix(self.autocorr)
+        #self.cov_matrix=getDummyCovMatrix(self.autocorr)
         
 def getCovMatrix(autocorr):
     n=len(autocorr)
@@ -196,6 +195,8 @@ def drawFromInterval(min, max, num, act):
  
             
 def runSimulation(sim,class_sample,theta_sample,run_c_param,args):
+    sim.ff = fitnessFunctions.fF(None,sim.model_handler,sim.dummy_option)
+    sim.mse = sim.ff.calc_ase
     theta_vals=[]
     class_vals=[]
     class_param_prob=[]
@@ -213,8 +214,11 @@ def runSimulation(sim,class_sample,theta_sample,run_c_param,args):
         class_vals.append(tmp)
         
     best_fit=1e+10
+    iter_counter=0
     for cl_val in class_vals:
         tmp=[]
+        print iter_counter
+        iter_counter+=1
         for th_val in theta_vals:
             #sim.setClassParams(sim.class_params,cl_val)
             #sim.setThetaParams(sim.theta_params,th_val)
@@ -285,6 +289,7 @@ def main():
     #first param is the noise amplitude
     #for big noise, use 10.0
     sim.generateColoredNoise([0.1,1.0/30.0])
+#    sim.generateColoredNoise([10.0,1.0/30.0])
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
