@@ -29,9 +29,9 @@ class simulationEnv(object):
         #classes has n elements if there are n possible classes
         #each class has m class parameters
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
-        self.classes=[(0.9,0.1)]
+        self.classes=[(0.9,0.4)]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [(0.0001,1e-10)]
+        self.theta_distr = [(0.0001,2e-05)]
         
         
         
@@ -282,14 +282,14 @@ def main():
     print "done simulating"
     print "creating noise"
     noise_mean=0.0
-    #noise_dev=1.0
-    noise_dev=0.1
-    #sim.generateWhiteNoise(noise_mean, noise_dev)
+    noise_dev=1.0
+    #noise_dev=0.1
+#    sim.generateWhiteNoise(noise_mean, noise_dev)
 
     #first param is the noise amplitude
     #for big noise, use 10.0
-    sim.generateColoredNoise([0.1,1.0/30.0])
-#    sim.generateColoredNoise([10.0,1.0/30.0])
+#    sim.generateColoredNoise([0.1,1.0/30.0])
+    sim.generateColoredNoise([10.0,1.0/30.0])
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
@@ -312,11 +312,7 @@ def main():
 #             range(len(exp_decay)),
 #             exp_decay,'b-')
 #    plt.title("autocorrelation vs exponential decay")
-    fig3=plt.figure()
-    ax3=fig3.add_subplot(111)
-    ax3.plot(range(len(sim.autocorr.tolist())),
-             sim.autocorr.tolist())
-    plt.title("autocorrelation")
+    
     print sim.theta_params,sim.class_params
     
     runSimulation(sim, 200, 10, run_c_param, {"noise_params": [noise_mean,noise_dev]})

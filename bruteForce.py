@@ -27,7 +27,8 @@ class simulationEnv(object):
         #one class parameter is a tuple: mean of gaussian, std_dev of gaussian
         self.classes=[[(0.9,0.1)],[(2,0.1)]]
         #distros should be given by function, bc checking is needed
-        self.theta_distr = [[(0.0001,1e-10)],[(0.0001,1e-10)]]
+#        self.theta_distr = [[(0.0001,1e-10)],[(0.0001,1e-10)]]
+        self.theta_distr = [[(0.0001,2e-5)],[(0.0001,2e-5)]]
         
         
         
@@ -196,8 +197,13 @@ def runSimulation(sim,num_iter,run_c_param,args):
     _iter=0
     classes_result=[[],[]]
     print "start brute force"
+    fig0=plt.figure()
+    ax0=fig0.add_subplot(111)
+    plt.title("Target trace compared to traces generated during integration")
+    plt.ylabel('mV')
+    plt.xlabel('points')
     for cl_idx,cl in enumerate(sim.classes):
-
+      
         while (_iter<integration_step):
             for cl_param_idx,cl_param in enumerate(cl):
                 sim.setClassParams([sim.class_params[cl_param_idx]],
@@ -211,8 +217,11 @@ def runSimulation(sim,num_iter,run_c_param,args):
             sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{"cov_m":sim.cov_matrix})
             #sse = len(sim.exp_trace)*sim.mse(sim.exp_trace,sim.model_handler.record[0],{})
             classes_result[cl_idx].append(sse)
+            if (cl_idx==0):
+                ax0.plot(sim.model_handler.record[0])
         _iter = 0
-    
+    ax0.plot(range(len(sim.exp_trace.tolist())),
+             sim.exp_trace.tolist(), linewidth=2)
     best_fit = min(min(classes_result[0]),min(classes_result[1]))
     classes_result = map(
                          lambda x: map(lambda y: exp(-1*(y-best_fit))
@@ -249,9 +258,11 @@ def main():
     print "done simulating"
     print "creating noise"
     noise_mean=0.0
-    noise_dev=1.0
+    #noise_dev=1.0
+    noise_dev=0.1
     #sim.generateWhiteNoise(noise_mean, noise_dev)
     sim.generateColoredNoise([30.0,1.0/30.0])
+    #sim.generateColoredNoise([0.1,1.0/30.0])
     print "noise added"
     fig1=plt.figure()
     ax1=fig1.add_subplot(111)
